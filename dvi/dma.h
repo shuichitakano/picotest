@@ -53,7 +53,7 @@ namespace dvi
             SYNC_DATA_ISLAND, // leading guardband, header, trailing guardband
             SYNC,
             BACK_PORCH,
-            BACK_PORCH_TO_VIDEO,
+            VIDEO_GUARDBAND,
             VIDEO,
             N,
         };
@@ -64,30 +64,30 @@ namespace dvi
             DATA_ISLAND, // leading guardband, packet, trailing guardband
             CTL1,
             PREAMBLE_TO_VIDEO,
+            VIDEO_GUARDBAND,
             VIDEO,
             N,
         };
         // guardband は video の先頭に入れるが、timing 定義的には backporch 区間の長さに含める
         // backporch は 4+8+2 pixel 以上必要
 
-        // static inline constexpr int SYNC_LANE_CHUNKS = 4;
-        // static inline constexpr int NO_SYNC_LANE_CHUNKS = 2;
         static inline constexpr int SYNC_LANE_CHUNKS = static_cast<int>(SyncLaneChunk::N);
         static inline constexpr int NO_SYNC_LANE_CHUNKS = static_cast<int>(NonSyncLaneChunk::N);
-        static inline constexpr int N_CHUNKS = std::max(SYNC_LANE_CHUNKS, NO_SYNC_LANE_CHUNKS);
+        //        static inline constexpr int N_CHUNKS = std::max(SYNC_LANE_CHUNKS, NO_SYNC_LANE_CHUNKS);
 
         struct List
         {
-            // Reg lane0[SYNC_LANE_CHUNKS];
-            // Reg lane12[2][NO_SYNC_LANE_CHUNKS];
+            Reg lane0[SYNC_LANE_CHUNKS];
+            Reg lane12[2][NO_SYNC_LANE_CHUNKS];
 
-            // Reg *get(int i)
-            // {
-            //     return i == 0 ? lane0 : lane12[i - 1];
-            // };
-            Reg lane[N_CHUNKS];
-            Reg *get(int i) { return lane[i]; }
-            const Reg *get(int i) const { return lane[i]; }
+            Reg *get(int i)
+            {
+                return i == 0 ? lane0 : lane12[i - 1];
+            };
+            const Reg *get(int i) const
+            {
+                return i == 0 ? lane0 : lane12[i - 1];
+            };
 
             void setupListForVBlank(const Timing &timing, const Configs &cfgs, bool vSyncAsserted);
             void setupListForActive(const Timing &timing, const Configs &cfgs, const uint32_t *tmds);
