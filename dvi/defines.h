@@ -13,6 +13,10 @@ namespace dvi
     inline constexpr int N_CHAR_PER_WORD = 2;
     inline constexpr int N_LINE_PER_DATA = 2;
 
+    inline constexpr int W_GUARDBAND = 2;
+    inline constexpr int W_PREAMBLE = 8;
+    inline constexpr int W_DATA_PACKET = 32;
+
     enum class LineState
     {
         FRONT_PORCH,

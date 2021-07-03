@@ -94,7 +94,6 @@ int main()
     while (true)
     {
         gpio_put(LED_PIN, (dvi_->getFrameCounter() / 60) & 1);
-        //        __wfe();
 
         uint16_t c0 = dvi_->getFrameCounter();
         for (int y = 0; y < 240; ++y)

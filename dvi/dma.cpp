@@ -11,10 +11,43 @@ namespace dvi
     {
         // Transition Maximized x2
         constexpr uint32_t __not_in_flash_func(TMDSControlSyms_)[4] = {
-            0xd5354, // 1101010100
-            0x2acab, // 0010101011
-            0x55154, // 0101010100
-            0xaaeab, // 1010101011
+            0b1101010100'1101010100,
+            0b0010101011'0010101011,
+            0b0101010100'0101010100,
+            0b1010101011'1010101011,
+        };
+
+        // TERC4 (1 char)
+        constexpr uint16_t __not_in_flash_func(TERC4Syms_)[16] = {
+            0b1010011100,
+            0b1001100011,
+            0b1011100100,
+            0b1011100010,
+            0b0101110001,
+            0b0100011110,
+            0b0110001110,
+            0b0100111100,
+            0b1011001100,
+            0b0100111001,
+            0b0110011100,
+            0b1011000110,
+            0b1010001110,
+            0b1001110001,
+            0b0101100011,
+            0b1011000011,
+        };
+
+        constexpr uint32_t makeTERC4x2Char(int i) { return TERC4Syms_[i] | (TERC4Syms_[i] << 10); }
+        constexpr uint32_t TERC4_0x2CharSym_ = makeTERC4x2Char(0);
+
+        // Data Gaurdband (lane 1, 2)
+        constexpr uint32_t dataGaurdbandSym_ = 0b0100110011'0100110011;
+
+        // Video Gaurdband
+        constexpr uint32_t __not_in_flash_func(videoGaurdbandSyms_)[3] = {
+            0b1011001100'1011001100,
+            0b0100110011'0100110011,
+            0b1011001100'1011001100,
         };
 
         const uint32_t *getTMDSControlSymbol(bool vsync, bool hsync)
@@ -25,9 +58,73 @@ namespace dvi
         // 赤
         static uint32_t __not_in_flash_func(TMDSRedSym_)[3] = {
             0x7fd00u, // 0x00, 0x00
-            0xbfa01u, // 0xfc, 0xfc
             0x7fd00u, // 0x00, 0x00
+            0xbfa01u, // 0xfc, 0xfc
         };
+
+        inline constexpr int W_DATA_ISLAND = W_GUARDBAND * 2 + W_DATA_PACKET;
+        // 単純のため packet は 1つに限定する
+
+        inline constexpr int N_DATA_ISLAND_WORDS = W_DATA_ISLAND / N_CHAR_PER_WORD;
+
+        // default data packet
+        constexpr uint32_t __not_in_flash_func(defaultDataPacket12_)[N_DATA_ISLAND_WORDS] = {
+            dataGaurdbandSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            TERC4_0x2CharSym_,
+            dataGaurdbandSym_,
+        };
+
+        template <bool v, bool h>
+        constexpr std::array<uint32_t, N_DATA_ISLAND_WORDS> makeDefaultDataPacket0()
+        {
+            constexpr int base = (v ? 2 : 0) | (h ? 1 : 0);
+            return {
+                makeTERC4x2Char(0b1100 | base),
+                makeTERC4x2Char(0b0000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1000 | base),
+                makeTERC4x2Char(0b1100 | base),
+            };
+        }
+        constexpr std::array<uint32_t, N_DATA_ISLAND_WORDS> __not_in_flash_func(defaultDataPackets0_)[4] = {
+            makeDefaultDataPacket0<false, false>(),
+            makeDefaultDataPacket0<false, true>(),
+            makeDefaultDataPacket0<true, false>(),
+            makeDefaultDataPacket0<true, true>(),
+        };
+
+        const uint32_t *getDefaultDataPacket0(bool vsync, bool hsync)
+        {
+            return defaultDataPackets0_[(vsync << 1) | hsync].data();
+        }
     }
 
     DMA::DMA(const Timing &timing, PIO pio)
@@ -40,6 +137,7 @@ namespace dvi
             cfg.chData = dma_claim_unused_channel(true);
             cfg.txFIFO = &pio->txf[sm];
             cfg.dreq = pio_get_dreq(pio, sm, true /* tx */);
+            printf("lane %d: DMA ch ctrl %d, ch data %d, FIFO %p, dreq %d\n", i, cfg.chCtrl, cfg.chData, cfg.txFIFO, cfg.dreq);
         }
 
         listVBlankSync_.setupListForVBlank(timing, cfgs_, true);
@@ -134,7 +232,7 @@ namespace dvi
         transfer_count = count;
         ch_cfg = dma_channel_get_default_config(cfg.chData);
 
-        printf("%p: ra:%p wa:%p ct:%d c:%x\n", this, read_addr, write_addr, transfer_count, ch_cfg.ctrl);
+        printf("%p: ch %d, ra:%p wa:%p ct:%d c:%x irq:%d\n", this, cfg.chData, read_addr, write_addr, transfer_count, ch_cfg.ctrl, irq);
 
         channel_config_set_ring(&ch_cfg, false, readRingSizeLog2);
         channel_config_set_dreq(&ch_cfg, cfg.dreq);
@@ -150,6 +248,11 @@ namespace dvi
         const auto *symHSyncOff = getTMDSControlSymbol(vsync, !timing.hSyncPolarity);
         const auto *symHSyncOn = getTMDSControlSymbol(vsync, timing.hSyncPolarity);
         const auto *symNoSync = getTMDSControlSymbol(false, false);
+        const auto *symPreambleToData12 = &TMDSControlSyms_[0b01];
+        const auto *dataPacket0 = getDefaultDataPacket0(vsync, timing.hSyncPolarity);
+
+        // 0番のレーンの active region の直前のブロックの終端で割り込みを入れ、3レーン分の次のラインのDMAリストの更新を行う
+        // Data Island を HSync の先頭に入れる
 
         for (int i = 0; i < N_TMDS_LANES; ++i)
         {
@@ -158,17 +261,19 @@ namespace dvi
             if (i == TMDS_SYNC_LANE)
             {
                 list[0].set(cfg, symHSyncOff, timing.hFrontPorch / N_CHAR_PER_WORD, 2, false);
-                list[1].set(cfg, symHSyncOn, timing.hSyncWidth / N_CHAR_PER_WORD, 2, false);
-                list[2].set(cfg, symHSyncOff, timing.hBackPorch / N_CHAR_PER_WORD, 2, true);
-                list[3].set(cfg, symHSyncOff, timing.hActivePixels / N_CHAR_PER_WORD, 2, false);
+                list[1].set(cfg, dataPacket0, N_DATA_ISLAND_WORDS, 2, false);
+                list[2].set(cfg, symHSyncOn, (timing.hSyncWidth - W_DATA_ISLAND) / N_CHAR_PER_WORD, 2, false);
+                list[3].set(cfg, symHSyncOff, timing.hBackPorch / N_CHAR_PER_WORD, 2, true);
+                list[4].set(cfg, symHSyncOff, timing.hActivePixels / N_CHAR_PER_WORD, 2, false);
             }
             else
             {
-                list[0].set(cfg, symNoSync, (timing.hFrontPorch + timing.hSyncWidth + timing.hBackPorch) / N_CHAR_PER_WORD, 2, false);
-                list[1].set(cfg, symNoSync, timing.hActivePixels / N_CHAR_PER_WORD, 2, false);
+                list[0].set(cfg, symNoSync, (timing.hFrontPorch - W_PREAMBLE) / N_CHAR_PER_WORD, 2, false);
+                list[1].set(cfg, symPreambleToData12, W_PREAMBLE / N_CHAR_PER_WORD, 2, false);
+                list[2].set(cfg, defaultDataPacket12_, N_DATA_ISLAND_WORDS, 2, false);
+                list[3].set(cfg, symNoSync, (timing.hSyncWidth + timing.hBackPorch - W_DATA_ISLAND) / N_CHAR_PER_WORD, 2, false);
+                list[4].set(cfg, symNoSync, timing.hActivePixels / N_CHAR_PER_WORD, 2, false);
             }
-
-            // 0番のレーンの active region の直前のブロックの終端で割り込みを入れ、3レーン分の次のラインのDMAリストの更新を行う
         }
     }
 
@@ -180,6 +285,10 @@ namespace dvi
         const auto *symHSyncOff = getTMDSControlSymbol(vsync, !timing.hSyncPolarity);
         const auto *symHSyncOn = getTMDSControlSymbol(vsync, timing.hSyncPolarity);
         const auto *symNoSync = getTMDSControlSymbol(false, false);
+        const auto *symPreambleToData12 = &TMDSControlSyms_[0b01];
+        const auto *symPreambleToVideo1 = &TMDSControlSyms_[0b01];
+        const auto *symPreambleToVideo2 = &TMDSControlSyms_[0b00];
+        const auto *dataPacket0 = getDefaultDataPacket0(vsync, timing.hSyncPolarity);
 
         for (int i = 0; i < N_TMDS_LANES; ++i)
         {
@@ -199,14 +308,23 @@ namespace dvi
             if (i == TMDS_SYNC_LANE)
             {
                 list[0].set(cfg, symHSyncOff, timing.hFrontPorch / N_CHAR_PER_WORD, 2, false);
-                list[1].set(cfg, symHSyncOn, timing.hSyncWidth / N_CHAR_PER_WORD, 2, false);
-                list[2].set(cfg, symHSyncOff, timing.hBackPorch / N_CHAR_PER_WORD, 2, true);
-                setActiveChunk(list[3]);
+                list[1].set(cfg, dataPacket0, N_DATA_ISLAND_WORDS, 0, false);
+                list[2].set(cfg, symHSyncOn, (timing.hSyncWidth - W_DATA_ISLAND) / N_CHAR_PER_WORD, 2, false);
+                list[3].set(cfg, symHSyncOff, (timing.hBackPorch - W_GUARDBAND) / N_CHAR_PER_WORD, 2, false);
+                list[4].set(cfg, &videoGaurdbandSyms_[0], W_GUARDBAND / N_CHAR_PER_WORD, 2, true);
+                setActiveChunk(list[5]);
             }
             else
             {
-                list[0].set(cfg, symNoSync, (timing.hFrontPorch + timing.hSyncWidth + timing.hBackPorch) / N_CHAR_PER_WORD, 2, false);
-                setActiveChunk(list[1]);
+                list[0].set(cfg, symNoSync, (timing.hFrontPorch - W_PREAMBLE) / N_CHAR_PER_WORD, 2, false);
+                list[1].set(cfg, symPreambleToData12, W_PREAMBLE / N_CHAR_PER_WORD, 2, false);
+                list[2].set(cfg, defaultDataPacket12_, N_DATA_ISLAND_WORDS, 0, false);
+                list[3].set(cfg, symNoSync,
+                            (timing.hSyncWidth + timing.hBackPorch - W_DATA_ISLAND - W_PREAMBLE - W_GUARDBAND) / N_CHAR_PER_WORD,
+                            2, false);
+                list[4].set(cfg, i == 1 ? symPreambleToVideo1 : symPreambleToVideo2, W_PREAMBLE / N_CHAR_PER_WORD, 2, false);
+                list[5].set(cfg, &videoGaurdbandSyms_[i], W_GUARDBAND / N_CHAR_PER_WORD, 2, false);
+                setActiveChunk(list[6]);
             }
         }
     }
@@ -221,11 +339,11 @@ namespace dvi
             auto *src = tmds + lineSize * i;
             if (i == TMDS_SYNC_LANE)
             {
-                list[3].read_addr = src;
+                list[5].read_addr = src;
             }
             else
             {
-                list[1].read_addr = src;
+                list[6].read_addr = src;
             }
         }
     }
@@ -238,12 +356,14 @@ namespace dvi
             const auto &cfg = cfgs[i];
             auto c = dma_channel_get_default_config(cfg.chCtrl);
             auto *dst = &dma_hw->ch[cfg.chData];
-            auto *src = const_cast<List *>(this)->get(i);
+            auto *src = get(i);
             channel_config_set_ring(&c, true /* write */, 4); // 16-byte write wrap
             channel_config_set_read_increment(&c, true);
             channel_config_set_write_increment(&c, true);
             dma_channel_configure(cfg.chCtrl, &c, dst, src, 4, false);
             // 4 word 転送したら停止して、データ転送後の chain_to で再稼働する
+
+            //           printf("load %d, ch %d: dst %p, src %p\n", i, cfg.chCtrl, dst, src);
         }
     }
 }
