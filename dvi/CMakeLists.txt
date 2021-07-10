@@ -7,6 +7,7 @@ INTERFACE
 	dvi.cpp
     timing.cpp
     dma.cpp
+    data_packet.cpp
     tmds_encode.cpp
     tmds_encode.S
 )

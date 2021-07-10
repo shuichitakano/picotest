@@ -6,9 +6,9 @@
 #define _25D39DD1_F134_63AD_3D0E_530B55A72531
 
 #include "spinlock.h"
+#include <hardware/sync.h>
 #include <vector>
 #include <mutex>
-#include "hardware/sync.h"
 #include <assert.h>
 
 namespace util

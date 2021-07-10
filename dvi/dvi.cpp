@@ -33,6 +33,17 @@ namespace dvi
 
         initSerialiser();
         allocateBuffers(timing);
+
+        aviInfoFrame_.setAVIInfoFrame(ScanInfo::UNDERSCAN,
+                                      PixelFormat::RGB,
+                                      Colorimetry::ITU601,
+                                      PixtureAspectRatio::_4_3,
+                                      ActiveFormatAspectRatio::_4_3,
+                                      RGBQuantizationRange::FULL,
+                                      VideoCode::_640x480P60);
+
+        aviInfoFrame_.dump();
+        aviInfoFrame_.test();
     }
 
     void
@@ -59,6 +70,13 @@ namespace dvi
         }
 
         enableSerialiser(true);
+    }
+
+    void
+    DVI::enableDataIsland()
+    {
+        enableDataIsland_ = true;
+        dma_.setupInternalDataPacketStream();
     }
 
     void
@@ -101,11 +119,85 @@ namespace dvi
         }
 
         dma_.update(lineState_, tmdsBuf, *timing_);
+        if (enableDataIsland_)
+        {
+            updateDataPacket();
+        }
 
         if (prevState != lineState_ && lineState_ == LineState::SYNC)
         {
             ++frameCounter_;
         }
+    }
+
+    void
+    DVI::updateDataPacket()
+    {
+        DataPacket packet;
+        auto proc = [&] {
+            if (samplesPerFrame_ == 0)
+            {
+                return false;
+            }
+
+            audioSamplePos_ += samplesPerLine16_;
+
+            if (lineState_ == LineState::FRONT_PORCH)
+            {
+                if (lineCounter_ == 0)
+                {
+                    if (frameCounter_ & 1)
+                    {
+                        packet = aviInfoFrame_;
+                    }
+                    else
+                    {
+                        packet = audioInfoFrame_;
+                    }
+                    leftAudioSampleCount_ = samplesPerFrame_;
+                    return true;
+                }
+                else if (lineCounter_ == 1)
+                {
+                    packet = audioClockRegeneration_;
+                    return true;
+                }
+            }
+
+#if 0
+            if (leftAudioSampleCount_)
+            {
+                const auto n = std::min(leftAudioSampleCount_, std::min<int>(audioSampleRing_.getReadableSize(), 2));
+                if (n)
+                {
+                    const auto *p = audioSampleRing_.getReadPointer();
+                    audioFrameCount_ = packet.setAudioSample(p, n, audioFrameCount_);
+                    audioSampleRing_.advanceReadPointer(n);
+                    leftAudioSampleCount_ -= n;
+                    return true;
+                }
+            }
+#else
+            //            audioSamplePos_ += samplesPerLine16_;
+            int n = std::min(4, std::min<int>(audioSamplePos_ >> 16, audioSampleRing_.getReadableSize()));
+            audioSamplePos_ -= n << 16;
+            if (n)
+            {
+                const auto *p = audioSampleRing_.getReadPointer();
+                audioFrameCount_ = packet.setAudioSample(p, n, audioFrameCount_);
+                audioSampleRing_.advanceReadPointer(n);
+                return true;
+            }
+#endif
+
+            return false;
+        };
+
+        if (!proc())
+        {
+            packet.setNull();
+        }
+        dma_.updateNextDataPacket(lineState_, packet, *timing_);
     }
 
     void
@@ -255,5 +347,34 @@ namespace dvi
             validTMDSQueue_.enque(std::move(dstTMDS));
             freeLineQueue_.enque(std::move(srcLine));
         }
+    }
+
+    void
+    DVI::setAudioFreq(int freq, int CTS, int N)
+    {
+        audioFreq_ = freq;
+        audioClockRegeneration_.setAudioClockRegeneration(CTS, N);
+        audioInfoFrame_.setAudioInfoFrame(freq);
+
+        audioClockRegeneration_.dump();
+        audioInfoFrame_.dump();
+
+        auto pixelClock = timing_->getPixelClock();
+        auto nPixPerFrame = timing_->getPixelsPerFrame();
+        auto nPixPerLine = timing_->getPixelsPerLine();
+
+        samplesPerFrame_ = static_cast<int>(static_cast<uint64_t>(freq) * nPixPerFrame / pixelClock);
+        samplesPerLine16_ = static_cast<int>(static_cast<uint64_t>(freq) * nPixPerLine * 65536 / pixelClock);
+        printf("setAudioFreq: %d Hz, CTS %d, N %d, %d samples/frame %d/65536 samples/line\n", freq, CTS, N, samplesPerFrame_,
+               samplesPerLine16_);
+
+        enableDataIsland();
+    }
+
+    void
+    DVI::allocateAudioBuffer(size_t size)
+    {
+        audioSampleBuffer_.resize(size, {0, 0});
+        audioSampleRing_.setBuffer(audioSampleBuffer_.data(), size);
     }
 }

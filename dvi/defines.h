@@ -17,6 +17,10 @@ namespace dvi
     inline constexpr int W_PREAMBLE = 8;
     inline constexpr int W_DATA_PACKET = 32;
 
+    // 単純のため packet は 1つに限定する
+    inline constexpr int W_DATA_ISLAND = W_GUARDBAND * 2 + W_DATA_PACKET;
+    inline constexpr int N_DATA_ISLAND_WORDS = W_DATA_ISLAND / N_CHAR_PER_WORD;
+
     enum class LineState
     {
         FRONT_PORCH,
