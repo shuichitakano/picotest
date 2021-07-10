@@ -45,13 +45,13 @@ target_link_libraries(picotest
 
 target_include_directories(picotest
 PRIVATE
-        .
-        )
+        pico_lib
+)
 
 
 pico_add_extra_outputs(picotest)
 
-add_subdirectory(dvi)
+add_subdirectory(pico_lib/dvi)
 
 
 
