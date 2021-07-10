@@ -11,6 +11,7 @@
 #include <hardware/sync.h>
 #include <pico/multicore.h>
 #include <memory>
+#include <math.h>
 
 #include "dvi/dvi.h"
 
@@ -62,8 +63,9 @@ int main()
 
     //
     dvi_ = std::make_unique<dvi::DVI>(pio0, &dviConfig_, dvi::getTiming640x480p60Hz());
-
-    multicore_launch_core1(core1_main);
+    dvi_->setAudioFreq(48000, 25200, 6144);
+    dvi_->allocateAudioBuffer(1024);
+    // multicore_launch_core1(core1_main);
 
 #if 0
     int32_t dividend = 123456;
@@ -87,10 +89,48 @@ int main()
 #endif
 
     // Timer example code - This example fires off the callback after 2000ms
-    add_alarm_in_ms(2000, alarm_callback, NULL, false);
+    // add_alarm_in_ms(2000, alarm_callback, NULL, false);
 
     //   puts("Hello, world!");
 
+    std::vector<int16_t> sinTable(1024);
+    for (int i = 0; i < 1024; ++i)
+    {
+        float t = i * 3.14159f * 2 / 1024;
+        sinTable[i] = int(sin(t) * 1024);
+    }
+
+    int phase = 0;
+    auto updateSample = [&] {
+        auto &ring = dvi_->getAudioRingBuffer();
+        auto n = ring.getWritableSize();
+        //        printf("ws %d\n", n);
+        auto p = ring.getWritePointer();
+        auto ct = n;
+        while (ct--)
+        {
+#if 0
+            float t = (float)phase * (3.1415927f * 2 / 65536.0f);
+            auto v = static_cast<int16_t>(sin(t) * 1024);
+#else
+            //            int16_t v = phase < 32768 ? 1024 : -1024;
+            auto v = sinTable[phase >> 6];
+#endif
+            *p++ = {v, v};
+            //            printf("%d %d %d\n", phase, v, phase >> 5);
+
+            constexpr int step = 440 * 65536 / 48000;
+            phase = (phase + step) & 65535;
+        }
+        //        phase &= 65535;
+        ring.advanceWritePointer(n);
+        //        printf("advance %d, ws %d\n", n, ring.getWritableSize());
+    };
+
+    updateSample();
+    updateSample();
+
+    multicore_launch_core1(core1_main);
     while (true)
     {
         gpio_put(LED_PIN, (dvi_->getFrameCounter() / 60) & 1);
@@ -98,6 +138,8 @@ int main()
         uint16_t c0 = dvi_->getFrameCounter();
         for (int y = 0; y < 240; ++y)
         {
+            updateSample();
+
             auto c = c0;
             auto line = dvi_->getLineBuffer();
             for (auto &v : *line)

@@ -7,6 +7,7 @@
 
 #include "timing.h"
 #include "defines.h"
+#include "data_packet.h"
 #include <hardware/dma.h>
 #include <hardware/pio.h>
 #include <stdint.h>
@@ -24,6 +25,9 @@ namespace dvi
         void __not_in_flash_func(clearInterruptReq)() const;
         void __not_in_flash_func(waitForLastBlockTransferToStart)(const Timing &timing) const;
         void __not_in_flash_func(update)(LineState st, const uint32_t *tmdsBuf, const Timing &timing);
+
+        void setupInternalDataPacketStream();
+        void __not_in_flash_func(updateNextDataPacket)(LineState st, const DataPacket &packet, const Timing &timing);
 
     private:
         struct Config
@@ -92,6 +96,8 @@ namespace dvi
             void setupListForVBlank(const Timing &timing, const Configs &cfgs, bool vSyncAsserted);
             void setupListForActive(const Timing &timing, const Configs &cfgs, const uint32_t *tmds);
             void __not_in_flash_func(updateScanLineData)(const Timing &timing, const uint32_t *tmds);
+            void __not_in_flash_func(updateDataIslandPtr)(const DataIslandStream *data);
+
             void __not_in_flash_func(load)(const Configs &cfgs) const;
         };
 
@@ -101,6 +107,8 @@ namespace dvi
         List listVBlankNoSync_;
         List listActive_;
         List listActiveError_;
+
+        DataIslandStream nextDataStream_;
     };
 }
 

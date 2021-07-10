@@ -17,13 +17,17 @@ namespace dvi
         int hBackPorch;
         int hActivePixels;
 
-        int vSyncPolarity;
+        bool vSyncPolarity;
         int vFrontPorch;
         int vSyncWidth;
         int vBackPorch;
         int vActiveLines;
 
         int bitClockKHz;
+
+        uint32_t getPixelsPerLine() const;
+        uint32_t getPixelsPerFrame() const;
+        uint32_t getPixelClock() const { return bitClockKHz * 100; }
     };
 
     const Timing *getTiming640x480p60Hz();

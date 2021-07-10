@@ -17,39 +17,6 @@ namespace dvi
             0b1010101011'1010101011,
         };
 
-        // TERC4 (1 char)
-        constexpr uint16_t __not_in_flash_func(TERC4Syms_)[16] = {
-            0b1010011100,
-            0b1001100011,
-            0b1011100100,
-            0b1011100010,
-            0b0101110001,
-            0b0100011110,
-            0b0110001110,
-            0b0100111100,
-            0b1011001100,
-            0b0100111001,
-            0b0110011100,
-            0b1011000110,
-            0b1010001110,
-            0b1001110001,
-            0b0101100011,
-            0b1011000011,
-        };
-
-        constexpr uint32_t makeTERC4x2Char(int i) { return TERC4Syms_[i] | (TERC4Syms_[i] << 10); }
-        constexpr uint32_t TERC4_0x2CharSym_ = makeTERC4x2Char(0);
-
-        // Data Gaurdband (lane 1, 2)
-        constexpr uint32_t dataGaurdbandSym_ = 0b0100110011'0100110011;
-
-        // Video Gaurdband
-        constexpr uint32_t __not_in_flash_func(videoGaurdbandSyms_)[3] = {
-            0b1011001100'1011001100,
-            0b0100110011'0100110011,
-            0b1011001100'1011001100,
-        };
-
         const uint32_t *getTMDSControlSymbol(bool vsync, bool hsync)
         {
             return &TMDSControlSyms_[(vsync << 1) | hsync];
@@ -62,69 +29,12 @@ namespace dvi
             0xbfa01u, // 0xfc, 0xfc
         };
 
-        inline constexpr int W_DATA_ISLAND = W_GUARDBAND * 2 + W_DATA_PACKET;
-        // 単純のため packet は 1つに限定する
-
-        inline constexpr int N_DATA_ISLAND_WORDS = W_DATA_ISLAND / N_CHAR_PER_WORD;
-
-        // default data packet
-        constexpr uint32_t __not_in_flash_func(defaultDataPacket12_)[N_DATA_ISLAND_WORDS] = {
-            dataGaurdbandSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            TERC4_0x2CharSym_,
-            dataGaurdbandSym_,
+        // Video Gaurdband
+        constexpr uint32_t __not_in_flash_func(videoGaurdbandSyms_)[3] = {
+            0b1011001100'1011001100,
+            0b0100110011'0100110011,
+            0b1011001100'1011001100,
         };
-
-        template <bool v, bool h>
-        constexpr std::array<uint32_t, N_DATA_ISLAND_WORDS> makeDefaultDataPacket0()
-        {
-            constexpr int base = (v ? 2 : 0) | (h ? 1 : 0);
-            return {
-                makeTERC4x2Char(0b1100 | base),
-                makeTERC4x2Char(0b0000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1000 | base),
-                makeTERC4x2Char(0b1100 | base),
-            };
-        }
-        constexpr std::array<uint32_t, N_DATA_ISLAND_WORDS> __not_in_flash_func(defaultDataPackets0_)[4] = {
-            makeDefaultDataPacket0<false, false>(),
-            makeDefaultDataPacket0<false, true>(),
-            makeDefaultDataPacket0<true, false>(),
-            makeDefaultDataPacket0<true, true>(),
-        };
-
-        const uint32_t *getDefaultDataPacket0(bool vsync, bool hsync)
-        {
-            return defaultDataPackets0_[(vsync << 1) | hsync].data();
-        }
     }
 
     DMA::DMA(const Timing &timing, PIO pio)
@@ -222,6 +132,23 @@ namespace dvi
         }
     }
 
+    void
+    DMA::updateNextDataPacket(LineState st, const DataPacket &packet, const Timing &timing)
+    {
+        bool vsync = st == LineState::SYNC;
+        encode(nextDataStream_, packet, timing.vSyncPolarity == vsync, timing.hSyncPolarity);
+    }
+
+    // 内蔵 DataPacket バッファを使うように設定する
+    void
+    DMA::setupInternalDataPacketStream()
+    {
+        listVBlankSync_.updateDataIslandPtr(&nextDataStream_);
+        listVBlankNoSync_.updateDataIslandPtr(&nextDataStream_);
+        listActive_.updateDataIslandPtr(&nextDataStream_);
+        listActiveError_.updateDataIslandPtr(&nextDataStream_);
+    }
+
     /////
 
     void
@@ -261,7 +188,7 @@ namespace dvi
             if (i == TMDS_SYNC_LANE)
             {
                 list[0].set(cfg, symHSyncOff, timing.hFrontPorch / N_CHAR_PER_WORD, 2, false);
-                list[1].set(cfg, dataPacket0, N_DATA_ISLAND_WORDS, 2, false);
+                list[1].set(cfg, dataPacket0, N_DATA_ISLAND_WORDS, 0, false);
                 list[2].set(cfg, symHSyncOn, (timing.hSyncWidth - W_DATA_ISLAND) / N_CHAR_PER_WORD, 2, false);
                 list[3].set(cfg, symHSyncOff, timing.hBackPorch / N_CHAR_PER_WORD, 2, true);
                 list[4].set(cfg, symHSyncOff, timing.hActivePixels / N_CHAR_PER_WORD, 2, false);
@@ -270,7 +197,7 @@ namespace dvi
             {
                 list[0].set(cfg, symNoSync, (timing.hFrontPorch - W_PREAMBLE) / N_CHAR_PER_WORD, 2, false);
                 list[1].set(cfg, symPreambleToData12, W_PREAMBLE / N_CHAR_PER_WORD, 2, false);
-                list[2].set(cfg, defaultDataPacket12_, N_DATA_ISLAND_WORDS, 2, false);
+                list[2].set(cfg, getDefaultDataPacket12(), N_DATA_ISLAND_WORDS, 0, false);
                 list[3].set(cfg, symNoSync, (timing.hSyncWidth + timing.hBackPorch - W_DATA_ISLAND) / N_CHAR_PER_WORD, 2, false);
                 list[4].set(cfg, symNoSync, timing.hActivePixels / N_CHAR_PER_WORD, 2, false);
             }
@@ -318,7 +245,7 @@ namespace dvi
             {
                 list[0].set(cfg, symNoSync, (timing.hFrontPorch - W_PREAMBLE) / N_CHAR_PER_WORD, 2, false);
                 list[1].set(cfg, symPreambleToData12, W_PREAMBLE / N_CHAR_PER_WORD, 2, false);
-                list[2].set(cfg, defaultDataPacket12_, N_DATA_ISLAND_WORDS, 0, false);
+                list[2].set(cfg, getDefaultDataPacket12(), N_DATA_ISLAND_WORDS, 0, false);
                 list[3].set(cfg, symNoSync,
                             (timing.hSyncWidth + timing.hBackPorch - W_DATA_ISLAND - W_PREAMBLE - W_GUARDBAND) / N_CHAR_PER_WORD,
                             2, false);
@@ -336,7 +263,7 @@ namespace dvi
         for (int i = 0; i < N_TMDS_LANES; ++i)
         {
             auto *list = get(i);
-            auto *src = tmds + lineSize * i;
+            const auto *src = tmds + lineSize * i;
             if (i == TMDS_SYNC_LANE)
             {
                 list[5].read_addr = src;
@@ -344,6 +271,24 @@ namespace dvi
             else
             {
                 list[6].read_addr = src;
+            }
+        }
+    }
+
+    void
+    DMA::List::updateDataIslandPtr(const DataIslandStream *data)
+    {
+        for (int i = 0; i < N_TMDS_LANES; ++i)
+        {
+            auto *list = get(i);
+            const auto *src = (*data)[i].data();
+            if (i == TMDS_SYNC_LANE)
+            {
+                list[1].read_addr = src;
+            }
+            else
+            {
+                list[2].read_addr = src;
             }
         }
     }
